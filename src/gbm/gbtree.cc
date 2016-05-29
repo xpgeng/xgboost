@@ -5,6 +5,7 @@
  * \author Tianqi Chen
  */
 #include <dmlc/omp.h>
+#include <dmlc/timer.h>
 #include <dmlc/parameter.h>
 #include <xgboost/logging.h>
 #include <xgboost/gbm.h>
@@ -192,6 +193,7 @@ class GBTree : public GradientBooster {
                std::vector<float>* out_preds,
                unsigned ntree_limit) override {
     const MetaInfo& info = p_fmat->info();
+    double tstart = dmlc::GetTime();
     int nthread;
     #pragma omp parallel
     {
@@ -211,7 +213,7 @@ class GBTree : public GradientBooster {
       const bst_omp_uint nsize = static_cast<bst_omp_uint>(batch.size);
       #pragma omp parallel for schedule(static)
       for (bst_omp_uint i = 0; i < nsize; ++i) {
-        const int tid = omp_get_thread_num();
+        const int tid =0;// omp_get_thread_num();
         RegTree::FVec &feats = thread_temp[tid];
         int64_t ridx = static_cast<int64_t>(batch.base_rowid + i);
         CHECK_LT(static_cast<size_t>(ridx), info.num_row);
@@ -225,6 +227,7 @@ class GBTree : public GradientBooster {
         }
       }
     }
+    LOG(INFO) << "total_cost=" << dmlc::GetTime() - tstart;
   }
 
   void Predict(const SparseBatch::Inst& inst,
@@ -262,6 +265,17 @@ class GBTree : public GradientBooster {
       dump.push_back(trees[i]->Dump2Text(fmap, option & 1));
     }
     return dump;
+  }
+
+  Predictor* CreatePredictor(float base_margin) const override {
+    std::vector<const RegTree*> mytree;
+    // donot support multi class for now
+    if (mparam.num_output_group != 1) return nullptr;
+
+    for (size_t i = 0; i < trees.size(); ++i) {
+      mytree.push_back(trees[i].get());
+    }
+    return Predictor::Create(mytree, base_margin);
   }
 
  protected:
